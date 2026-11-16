@@ -1,0 +1,177 @@
+# Bug Auto-Fix MVP 配置示例
+# 使用方式：
+#   cp config.example.yaml config.yaml
+#   cp .env.example .env
+# 生产环境请通过环境变量注入密钥，不要把 Token/Key 写进 YAML。
+# Docker Compose 会注入 DATABASE_URL，覆盖下面的 app.database_url。
+
+app:
+  # 审批链接的前缀，例如 {base_url}/a/{token}
+  base_url: http://localhost:8080
+  # 管理员 Bearer Token 的环境变量名；未设置时本地开发会跳过鉴权
+  admin_token_env: AUTOFIX_ADMIN_TOKEN
+  # 审批链接签名密钥的环境变量名；生产必须设置
+  approval_secret_env: AUTOFIX_APPROVAL_SECRET
+  # PostgreSQL 异步连接串；容器内会被 DATABASE_URL 覆盖
+  database_url: postgresql+asyncpg://user:password@host:5432/appdb
+
+source:
+  # 当前实现只支持 GitLab Issues；接禅道/内部平台需要新增 BugSourceAdapter
+  type: gitlab_issues
+  # 来源项目路径，通常与 project.repo 相同
+  project: didaspace-group/drawhub
+  # 只拉取带有这些标签的 Issue
+  labels: ["bug", "auto-fix"]
+  # 增量轮询间隔（秒）
+  poll_interval_seconds: 300
+  # 来源系统只读 Token 的环境变量名
+  token_env: SOURCE_TOKEN
+
+project:
+  # 项目标识，用于日志和指标
+  key: drawhub-service
+  # GitLab 项目路径（group/subgroup/repo）
+  repo: didaspace-group/drawhub
+  # GitLab 实例地址
+  gitlab_url: https://gitlab.com
+  # Worker 使用的本地仓库路径；需要提前 clone，并配置非交互 push 凭据
+  repo_path: repos/drawhub
+
+  branches:
+    # 修复分支从该分支拉出，修复完成后先合入该分支
+    base: dev
+    # 测试分支；只接收 promote 分支上的单次 cherry-pick
+    test: test
+    # 必须为 false：交付依赖 merge commit 保留 fix_sha；强制 squash 时只能降级 CREATE_MR_ONLY
+    allow_squash: false
+
+  limits:
+    # 单次修复最多修改的文件数
+    max_files: 10
+    # 单次修复最多新增+删除的行数（不含空白）
+    max_lines: 200
+    # 允许修改的路径；不在列表内一律阻断
+    allowed_paths:
+      - "backend/src/**"
+      - "backend/tests/**"
+    # 明确禁止修改的路径；即使能归因也阻断
+    forbidden_paths:
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - "pom.xml"
+      - "build.gradle"
+      - "package-lock.json"
+      - ".gitlab-ci.yml"
+      - "ci/**"
+      - "deploy/**"
+      - "db/migration/**"
+      - "AGENTS.md"
+      - "docs/**"
+      - "frontend/**"
+
+  gates:
+    # 多模块门禁：按本次变更文件匹配 paths，执行对应模块的 L1-L3。
+    # 如果一次修复同时涉及 backend 和 frontend，两组门禁都会执行。
+    modules:
+      backend:
+        paths: ["backend/**"]
+        working_dir: backend
+        compile: "node --check src/index.ts"
+        unit: "npm test"
+        # 跑全量测试，Red-Green 会额外在 base_sha 上复制新增测试并期望失败
+        regression: "npm test"
+        timeout_seconds: 600
+      frontend:
+        paths: ["frontend/**"]
+        working_dir: frontend
+        compile: "node --check src/app.js"
+        unit: "npm test"
+        regression: "npm test"
+        timeout_seconds: 600
+
+  delivery:
+    # AUTO_MERGE_IF_ALLOWED：MR 可合并时自动合并
+    # CREATE_MR_ONLY：只创建 MR，由人工合并（分支保护要求流水线时使用）
+    merge_mode: AUTO_MERGE_IF_ALLOWED
+    deploy:
+      # MERGE_ONLY：合入 test 即完成，不部署
+      # LOCAL_DEPLOY：合入后在 Runner 执行 command，并做健康检查/回滚
+      mode: MERGE_ONLY
+      # 仅 LOCAL_DEPLOY 使用；支持 {sha} 占位符
+      command: null
+      # 仅 LOCAL_DEPLOY 使用；返回 200 视为健康
+      health_url: null
+      # 仅 LOCAL_DEPLOY 使用；部署/健康检查失败时执行
+      rollback_command: null
+
+  approval:
+    # link：签名链接审批页；lark：预留飞书卡片通道
+    channel: link
+    # 来源系统账号 -> 平台审批人标识的映射；为空时直接使用 assignee
+    user_map: {}
+    # 合并授权人列表；MERGE 门禁必须由这里的人完成
+    code_owners: []
+    gates:
+      plan:
+        # 方案审批人：assignee 表示来源系统执行人
+        approver: assignee
+        # assignee 缺失或未映射时的兜底审批人
+        fallback: []
+        # 审批链接有效期（小时）
+        ttl_hours: 24
+        # 方案被驳回多少次后转 MANUAL
+        max_reject: 2
+      result:
+        # 修复结果确认人，通常是 Bug 执行人
+        approver: assignee
+        fallback: []
+        ttl_hours: 48
+      merge:
+        # 合并授权人，固定为 code_owner
+        approver: code_owner
+        fallback: []
+        ttl_hours: 8
+
+  agent:
+    # 编码 Agent 类型，仅用于日志/指标
+    type: opencode
+    # 当前只支持 ACP；不要改成 CLI 文本模式
+    protocol: ACP
+    # ACP 启动命令；Runner 必须能直接找到 opencode
+    command: ["opencode", "acp", "--pure"]
+    # 单次编码超时（分钟）
+    timeout_minutes: 40
+    # 编码+验证失败后的最大尝试次数
+    max_attempts: 3
+    network:
+      # 通过代理限制出口；Runner 只允许模型、Git、包仓库等地址
+      mode: proxy
+      proxy_env: HTTPS_PROXY
+
+  model:
+    # 分析模型 Provider
+    provider: anthropic
+    # 分析模型名称；编码模型由 OpenCode 自己管理
+    model: claude-opus-5-5
+    # API Key 的环境变量名
+    api_key_env: ANTHROPIC_API_KEY
+    # 私有网关地址；为 null 时回退到环境变量 ANTHROPIC_BASE_URL
+    base_url: null
+    # 分析输出最大 Token 数
+    max_tokens: 32000
+
+  analysis:
+    # 对明显、通用的问题使用默认方案，减少澄清往返
+    allow_default_assumptions: true
+    # 只有真正阻塞的问题才提问，最多 3 个
+    max_questions: 3
+    conventions:
+      - "前端滚动标题：仅在内容溢出时滚动，方向从右向左；hover/focus 暂停；prefers-reduced-motion 时停止"
+      - "优先复用仓库现有测试框架和目录；不要询问能从代码中发现的文件位置"
+      - "业务规则不明确且影响正确性时才提问"
+
+  budget:
+    # 单个 Bug 的模型成本上限（美元）
+    max_usd_per_task: 8
+    # 单日模型成本上限（美元）
+    max_usd_per_day: 200
