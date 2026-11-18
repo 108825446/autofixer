@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>修复结果确认 · {{ task.issue_key }}</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --text: #17202a;
+      --muted: #667085;
+      --line: #e4e7ec;
+      --accent: #2563eb;
+      --accent-dark: #1d4ed8;
+      --green: #067647;
+      --green-bg: #ecfdf3;
+      --amber: #b54708;
+      --amber-bg: #fffaeb;
+      --red: #b42318;
+      --red-bg: #fef3f2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                   "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 26px 18px 56px; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: #eff6ff;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .muted { color: var(--muted); }
+    .small { font-size: 13px; }
+    h1 { font-size: 24px; line-height: 1.35; margin: 0 0 6px; }
+    h2 { font-size: 16px; margin: 0; }
+    .subtitle { color: var(--muted); font-size: 14px; margin: 0; }
+    .status {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      border-radius: 12px;
+      padding: 13px 15px;
+      margin: 18px 0;
+      font-size: 14px;
+    }
+    .status-ok { background: var(--green-bg); color: var(--green); border: 1px solid #abefc6; }
+    .status-bad { background: var(--red-bg); color: var(--red); border: 1px solid #fecdca; }
+    .status-icon {
+      width: 22px; height: 22px; flex: 0 0 auto; border-radius: 50%;
+      display: grid; place-items: center; font-weight: 800; font-size: 13px;
+      color: #fff;
+    }
+    .status-ok .status-icon { background: var(--green); }
+    .status-bad .status-icon { background: var(--red); }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 18px;
+      align-items: start;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+    }
+    .card + .card { margin-top: 14px; }
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .tag {
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 3px 9px;
+      background: #f2f4f7;
+      color: var(--muted);
+    }
+    .summary { font-size: 15px; margin: 0 0 10px; }
+    .sha-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .sha-row code {
+      color: #344054;
+      background: #f8f9fb;
+      border: 1px solid #eef0f3;
+      border-radius: 5px;
+      padding: 2px 6px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .stat {
+      border: 1px solid #eef0f3;
+      background: #fafbfc;
+      border-radius: 10px;
+      padding: 11px 12px;
+    }
+    .stat-label { color: var(--muted); font-size: 12px; }
+    .stat-value { font-size: 22px; font-weight: 750; line-height: 1.2; margin-top: 2px; }
+    .stat-value small { color: var(--muted); font-size: 12px; font-weight: 500; }
+    .files { display: flex; flex-wrap: wrap; gap: 7px; }
+    .file {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: #344054;
+      background: #f8f9fb;
+      border: 1px solid #eef0f3;
+      border-radius: 6px;
+      padding: 3px 7px;
+      overflow-wrap: anywhere;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 600;
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--line);
+    }
+    td { padding: 9px 6px; border-bottom: 1px solid #f0f1f4; vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      background: #f6f8fa;
+      border: 1px solid #eef0f3;
+      border-radius: 5px;
+      padding: 2px 5px;
+      overflow-wrap: anywhere;
+    }
+    .pass { color: var(--green); font-weight: 700; }
+    .fail { color: var(--red); font-weight: 700; }
+    .redgreen {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .rg-box {
+      border: 1px solid #eef0f3;
+      border-radius: 10px;
+      padding: 11px 12px;
+      background: #fafbfc;
+    }
+    .rg-box strong { display: block; font-size: 18px; margin-top: 2px; }
+    .callout {
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 14px;
+    }
+    .callout-green { background: var(--green-bg); color: var(--green); border: 1px solid #abefc6; }
+    .callout-red { background: var(--red-bg); color: var(--red); border: 1px solid #fecdca; }
+    .callout-gray { background: #f8f9fb; color: #475467; border: 1px solid #eef0f3; }
+    .diff {
+      margin: 0;
+      max-height: 380px;
+      overflow: auto;
+      background: #0f172a;
+      color: #d7e1f0;
+      border-radius: 10px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre;
+    }
+    details { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 4px; }
+    summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+    .original { white-space: pre-wrap; color: #475467; font-size: 13px; margin-top: 10px; max-height: 240px; overflow: auto; }
+    .sidebar { position: sticky; top: 18px; }
+    .approval-card { border-top: 4px solid var(--green); }
+    .approval-card h2 { font-size: 17px; margin-bottom: 4px; }
+    .approval-meta {
+      display: grid;
+      gap: 7px;
+      margin: 14px 0 16px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .approval-meta div { display: flex; justify-content: space-between; gap: 10px; }
+    .approval-meta strong { color: var(--text); font-weight: 600; text-align: right; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+    .hint { color: var(--muted); font-size: 12px; font-weight: 400; }
+    input[type=text], textarea {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 9px;
+      padding: 9px 11px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+    }
+    input[type=text]:focus, textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+    }
+    textarea { min-height: 82px; resize: vertical; }
+    .actions { display: grid; gap: 8px; margin-top: 16px; }
+    button {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .approve { color: #fff; background: var(--green); }
+    .approve:hover { background: #05603a; }
+    .changes { color: #7a2e0e; background: var(--amber-bg); border-color: #fedf89; }
+    .changes:hover { background: #fef0c7; }
+    .reject { color: var(--red); background: #fff; border-color: #fda29b; }
+    .reject:hover { background: var(--red-bg); }
+    .approval-note { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
+    .decided {
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+    .decided-approved { color: var(--green); background: var(--green-bg); }
+    .decided-changes { color: var(--amber); background: var(--amber-bg); }
+    .decided-rejected { color: var(--red); background: var(--red-bg); }
+    .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: static; }
+      .wrap { padding: 18px 12px 40px; }
+    }
+    @media (max-width: 480px) {
+      .wrap { padding: 14px 10px 32px; }
+      .card { padding: 16px 14px; border-radius: 12px; }
+      h1 { font-size: 21px; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      .redgreen { grid-template-columns: 1fr; }
+      .stat-value { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <span class="chip">修复结果确认 · RESULT</span>
+    <span class="muted small">Bug {{ task.issue_key }} · {{ task.repo }}</span>
+  </div>
+
+  <h1>{{ task.title }}</h1>
+  <p class="subtitle">
+    请确认改动范围、测试证据和风险。确认后仍需 Code Owner 单独进行合并授权。
+  </p>
+
+  {% if result.ok %}
+    <div class="status status-ok">
+      <span class="status-icon">✓</span>
+      <div>
+        <strong>自动验证通过</strong>
+        <div>编译、单元测试、Red-Green 回归和变更范围检查均通过。</div>
+      </div>
+    </div>
+  {% else %}
+    <div class="status status-bad">
+      <span class="status-icon">!</span>
+      <div>
+        <strong>验证证据不完整或未通过</strong>
+        <div>{{ result.reasons|join("；") or "请查看下方证据后再决定。" }}</div>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="layout">
+    <main>
+      <section class="card">
+        <div class="section-head">
+          <h2>修复摘要</h2>
+          <span class="tag">{{ result.branch or "bugfix" }}</span>
+        </div>
+        <p class="summary">{{ analysis.root_cause or "未提供根因摘要。" }}</p>
+        <div class="sha-row">
+          <span>base <code>{{ (result.base_sha or "")[:8] }}</code></span>
+          <span>fix <code>{{ (result.fix_sha or "")[:8] }}</code></span>
+          <span>commit <code>{{ (result.fix_sha or "")[:12] }}</code></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>变更范围</h2>
+          <span class="tag">{{ result.scope.ok and "范围合规" or "需检查" }}</span>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">变更文件</div>
+            <div class="stat-value">{{ result.files|length }} <small>/ 10</small></div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">变更行数</div>
+            <div class="stat-value">{{ result.lines }} <small>/ 200</small></div>
+          </div>
+        </div>
+        {% if result.files %}
+          <div class="files">
+            {% for file in result.files %}<span class="file">{{ file }}</span>{% endfor %}
+          </div>
+        {% else %}
+          <div class="callout callout-gray">未找到变更文件列表。</div>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>验证证据</h2>
+          <span class="tag">工具输出</span>
+        </div>
+        {% if result.gates %}
+          <table>
+            <thead><tr><th>命令</th><th>退出码</th><th>结果</th></tr></thead>
+            <tbody>
+              {% for gate in result.gates %}
+                <tr>
+                  <td><code>{{ gate.command }}</code></td>
+                  <td>{{ gate.returncode }}</td>
+                  <td>
+                    {% if gate.ok %}<span class="pass">通过</span>
+                    {% else %}<span class="fail">失败</span>{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="callout callout-gray">未找到门禁结果。</div>
+        {% endif %}
+
+        <div class="redgreen" style="margin-top:16px;">
+          <div class="rg-box">
+            <div class="stat-label">修复前（base）</div>
+            <strong class="{% if result.red_green.base_returncode is not none and result.red_green.base_returncode != 0 %}pass{% else %}fail{% endif %}">
+              {{ result.red_green.base_returncode if result.red_green.base_returncode is not none else '-' }}
+            </strong>
+            <div class="small muted">期望失败</div>
+          </div>
+          <div class="rg-box">
+            <div class="stat-label">修复后（fix）</div>
+            <strong class="{{ 'pass' if result.red_green.fix_returncode == 0 else 'fail' }}">
+              {{ result.red_green.fix_returncode if result.red_green.fix_returncode is not none else '-' }}
+            </strong>
+            <div class="small muted">期望通过</div>
+          </div>
+        </div>
+        {% if result.red_green and result.red_green.get("reason") %}
+          <p class="small muted" style="margin:10px 0 0;">{{ result.red_green.reason }}</p>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Diff</h2>
+          <span class="tag">{{ result.files|length }} 文件 · {{ result.lines }} 行</span>
+        </div>
+        {% if result.diff %}
+          <details>
+            <summary>展开查看完整 Diff（只读）</summary>
+            <pre class="diff">{{ result.diff[:60000] }}</pre>
+            {% if result.diff|length > 60000 %}
+              <p class="small muted">Diff 较长，页面仅展示前 60000 字符。</p>
+            {% endif %}
+          </details>
+        {% else %}
+          <div class="callout callout-gray">未找到 Diff 内容。</div>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <div class="section-head"><h2>测试计划与风险</h2></div>
+        <p style="margin:0 0 10px;"><strong>测试：</strong>{{ analysis.test_plan or "未提供测试计划。" }}</p>
+        <p style="margin:0;"><strong>回滚：</strong>{{ analysis.rollback or "未提供回滚方案。" }}</p>
+      </section>
+
+      <section class="card">
+        <details>
+          <summary>查看原始 Bug 描述</summary>
+          <div class="original">{{ task.body }}</div>
+        </details>
+      </section>
+    </main>
+
+    <aside class="sidebar">
+      <section class="card approval-card">
+        <h2>确认修复结果</h2>
+        <p class="muted small" style="margin:0;">确认修复正确，不代表授权合并。</p>
+
+        {% if decided %}
+          <div class="decided
+            {% if approval.decision == 'APPROVED' %}decided-approved
+            {% elif approval.decision == 'CHANGES_REQUESTED' %}decided-changes
+            {% else %}decided-rejected{% endif %}">
+            {% if approval.decision == 'APPROVED' %}
+              已确认修复结果，等待 Code Owner 合并授权。
+            {% else %}
+              已记录：{{ approval.decision }}
+            {% endif %}
+          </div>
+          {% if message %}<p class="muted small">{{ message }}</p>{% endif %}
+        {% else %}
+          <div class="approval-meta">
+            <div><span>审批角色</span><strong>{{ approval.role }}</strong></div>
+            <div><span>过期时间</span><strong>{{ approval.expires_at.strftime("%Y-%m-%d %H:%M") }}</strong></div>
+            <div><span>修复 Commit</span><strong>{{ (result.fix_sha or "")[:8] }}</strong></div>
+            <div><span>绑定哈希</span><strong>{{ approval.subject_hash[:12] }}…</strong></div>
+          </div>
+
+          <form method="post" action="{{ action_url }}">
+            <label for="actor">审批人</label>
+            <input id="actor" name="actor" type="text" value="{{ default_actor }}" autocomplete="off">
+
+            <label for="comment">确认意见 <span class="hint">要求修改时建议填写</span></label>
+            <textarea id="comment" name="comment" placeholder="例如：改动范围符合预期，测试证据完整。"></textarea>
+
+            <div class="actions">
+              <button class="approve" type="submit" name="decision" value="APPROVED">确认修复结果</button>
+              <button class="changes" type="submit" name="decision" value="CHANGES_REQUESTED">要求修改</button>
+              <button class="reject" type="submit" name="decision" value="REJECTED">拒绝</button>
+            </div>
+          </form>
+
+          <p class="approval-note">
+            确认后进入合并授权；Code Owner 通过后才会创建 MR。
+          </p>
+        {% endif %}
+      </section>
+    </aside>
+  </div>
+
+  <p class="footer">Bug Auto-Fix · 结果审批绑定 fix_sha、diff_hash 和配置哈希</p>
+</div>
+</body>
+</html>

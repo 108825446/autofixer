@@ -167,6 +167,8 @@ class AnalysisPolicy(BaseModel):
 
     allow_default_assumptions: bool = True
     max_questions: int = 3
+    # 单次分析最长等待时间；防止模型/网关无响应时任务永久占用
+    timeout_seconds: int = 900
     conventions: list[str] = Field(default_factory=list)
 
 

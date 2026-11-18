@@ -14,7 +14,7 @@
 | 12 状态机 + 审计 | 已实现 | `app/core/state_machine.py`、`app/core/models.py` |
 | PostgreSQL 任务队列 + 租约 | 已实现 | `app/workflow/worker.py`（`FOR UPDATE SKIP LOCKED`） |
 | 分析 + 结构化输出 | 已实现 | `app/agents/analyzer.py` |
-| PLAN 审批 | 已实现 | `app/workflow/approvals.py`、`app/templates/approve.html` |
+| PLAN 审批 | 已实现 | `app/workflow/approvals.py`、`app/api/templates/approve_plan.html` |
 | OpenCode ACP 编码 | 已实现 | `app/agents/acp.py`、`app/workflow/worker.py` |
 | L1–L3 + Red-Green + Diff 约束 | 已实现 | `app/workflow/verifier.py` |
 | RESULT + MERGE 双审批 | 已实现 | `app/workflow/approvals.py` |

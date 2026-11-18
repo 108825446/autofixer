@@ -88,16 +88,22 @@ async def test_approval_page_and_decision(app, config, session_factory, task, tm
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        page = await client.get(f"/a/{token}")
+        page = await client.get(f"/approve/plan/{token}")
         assert page.status_code == 200, page.text
-        assert "PLAN approval" in page.text
+        assert "方案审批" in page.text
+        assert "x" in page.text
 
         decision = await client.post(
-            f"/a/{token}",
+            f"/approve/plan/{token}",
             data={"decision": "APPROVED", "actor": "bug-owner", "comment": "ok"},
         )
         assert decision.status_code == 200, decision.text
-        assert "Decision recorded" in decision.text
+        assert "审批已记录" in decision.text
+
+        refreshed_page = await client.get(f"/approve/plan/{token}")
+        assert refreshed_page.status_code == 200, refreshed_page.text
+        assert "已记录：APPROVED" in refreshed_page.text
+        assert "批准方案" not in refreshed_page.text
 
     async with session_factory() as session:
         refreshed = await session.get(BugTask, task.id)

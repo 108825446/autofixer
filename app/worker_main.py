@@ -43,6 +43,13 @@ async def main() -> None:
         policy=config.project.analysis,
     )
 
+    repo_path = Path(config.project.repo_path).expanduser().resolve()
+    if not (repo_path / ".git").exists():
+        raise SystemExit(
+            f"repository not found: {repo_path}. "
+            "Clone it to project.repo_path before starting the worker."
+        )
+
     token = os.environ.get("GITLAB_TOKEN", "")
     project = config.source.project or config.project.repo
     webhook = os.environ.get("FEISHU_WEBHOOK", "")
@@ -55,7 +62,7 @@ async def main() -> None:
             config=config,
             session_factory=session_factory,
             analyzer=analyzer,
-            git=GitOps(config.project.repo_path),
+            git=GitOps(repo_path),
             gitlab=client,
             notifier=notifier,
             worktree_root=Path("work"),

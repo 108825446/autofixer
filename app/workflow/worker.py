@@ -21,7 +21,7 @@ from app.agents.acp import AcpClient, PermissionPolicy
 from app.agents.analyzer import Analyzer
 from app.core.config import AppConfig
 from app.core.models import AgentRun, Artifact, BugTask, SysConfig, utcnow
-from app.core.security import sha256_hex
+from app.core.security import make_clarification_token, sha256_hex
 from app.core.state_machine import transition
 from app.integrations.gitlab import GitLabClient
 from app.integrations.gitops import GitOps
@@ -112,14 +112,15 @@ class Worker:
             if task is None:
                 return False
             await session.commit()
+            task_id = task.id
             try:
                 await self.handle(session, task)
                 await session.commit()
                 return True
             except Exception as exc:  # noqa: BLE001
                 await session.rollback()
-                logger.exception("task %s failed", task.id)
-                fresh = await session.get(BugTask, task.id)
+                logger.exception("task %s failed", task_id)
+                fresh = await session.get(BugTask, task_id)
                 if fresh is not None:
                     fresh.last_error = str(exc)[:4000]
                     fresh.lease_until = None
@@ -160,6 +161,20 @@ class Worker:
             except Exception:  # noqa: BLE001
                 continue
         raise WorkerError("cannot resolve base sha")
+
+    async def _next_artifact_version(
+        self, session: AsyncSession, task_id: str, type_: str
+    ) -> int:
+        """返回下一个 Artifact 版本；重试/attempt 重置时也不会撞唯一键。"""
+
+        stmt = (
+            select(Artifact.version)
+            .where(Artifact.task_id == task_id, Artifact.type == type_)
+            .order_by(Artifact.version.desc())
+            .limit(1)
+        )
+        latest = (await session.execute(stmt)).scalar_one_or_none()
+        return int(latest or 0) + 1
 
     async def _save_artifact(
         self,
@@ -203,6 +218,14 @@ class Worker:
         if task.state == "NEW":
             transition(task, "analyze", actor="worker", session=session)
             await session.flush()
+        if task.base_sha is None:
+            try:
+                task.base_sha = self._base_sha(task)
+            except Exception as exc:  # noqa: BLE001
+                task.last_error = f"analysis failed: cannot resolve base sha: {exc}"
+                transition(task, "analysis_failed", actor="worker", session=session)
+                await session.flush()
+                return
         try:
             analysis = await self.analyzer.analyze(
                 issue_key=task.issue_key,
@@ -230,8 +253,6 @@ class Worker:
             )
         )
         task.plan_version += 1
-        if task.base_sha is None:
-            task.base_sha = self._base_sha(task)
         artifact = await self._save_artifact(
             session,
             task,
@@ -242,8 +263,16 @@ class Worker:
 
         if analysis.need_info:
             transition(task, "need_info", actor="worker", session=session)
+            expires_at = utcnow() + timedelta(hours=72)
+            token = make_clarification_token(
+                self.config.approval_secret(),
+                task.id,
+                task.plan_version,
+                expires_at,
+            )
             await self.notifier.send(
-                f"{task.issue_key} needs more information: {'; '.join(analysis.questions[:5])}"
+                f"{task.issue_key} 需要补充 Bug 信息",
+                f"{self.config.app.base_url.rstrip('/')}/clarify/{token}",
             )
             await session.flush()
             return
@@ -262,14 +291,15 @@ class Worker:
         approval, token = await self.approvals.create_plan(
             session, task, analysis_hash=artifact.sha256, base_sha=task.base_sha
         )
+        task.last_error = None
         transition(task, "analysis_ready", actor="worker", session=session)
         await session.flush()
         await self.notifier.send(
             f"{task.issue_key} analysis ready; approve plan",
-            f"{self.config.app.base_url}/a/{token}",
+            f"{self.config.app.base_url}/approve/plan/{token}",
         )
 
-    def _fix_prompt(self, task: BugTask, analysis: dict) -> str:
+    def _fix_prompt(self, task: BugTask, analysis: dict, failure_summary: str = "") -> str:
         limits = self.config.project.limits
         return f"""Fix the bug in the current repository.
 
@@ -286,6 +316,9 @@ Hard constraints:
 - Regression test: {analysis.get('test_plan', '')}
 - Test command: {analysis.get('test_command', '')}
 - Commit your changes with git. Do not push.
+
+Previous verification failure (if any):
+{failure_summary or "None"}
 """
 
     async def _fix(self, session: AsyncSession, task: BugTask) -> None:
@@ -296,10 +329,23 @@ Hard constraints:
             raise WorkerError("analysis artifact missing")
         analysis_payload = self._load_artifact(analysis_artifact)
         analysis = analysis_payload.get("analysis", analysis_payload)
+        failure_summary = ""
+        evidence_artifact = await self._latest_artifact(session, task.id, "EVIDENCE")
+        if evidence_artifact is not None:
+            evidence = self._load_artifact(evidence_artifact)
+            reasons = evidence.get("reasons") or []
+            if reasons:
+                failure_summary = "; ".join(str(r) for r in reasons)
 
         # 每次编码都从冻结的 base SHA 创建干净 Worktree。
         # 分支名固定，重试时覆盖上一次尝试。
-        base_sha = task.base_sha or self._base_sha(task)
+        try:
+            base_sha = task.base_sha or self._base_sha(task)
+        except Exception as exc:  # noqa: BLE001
+            task.last_error = f"code fix failed: cannot resolve base sha: {exc}"
+            transition(task, "fix_failed", actor="worker", session=session)
+            await session.flush()
+            return
         branch = f"bugfix/{task.issue_key}"
         worktree = self.worktree_root / f"fix-{task.id}"
         try:
@@ -320,7 +366,7 @@ Hard constraints:
                 await client.initialize()
                 await client.new_session(str(worktree))
                 run = await client.prompt(
-                    self._fix_prompt(task, analysis),
+                    self._fix_prompt(task, analysis, failure_summary),
                     timeout=self.config.project.agent.timeout_minutes * 60,
                 )
         except Exception as exc:  # noqa: BLE001
@@ -391,7 +437,7 @@ Hard constraints:
             session,
             task,
             "DIFF",
-            task.attempt + 1,
+            await self._next_artifact_version(session, task.id, "DIFF"),
             {
                 "base_sha": base_sha,
                 "fix_sha": fix_sha,
@@ -400,6 +446,7 @@ Hard constraints:
                 "diff": self.git.show_diff(base_sha, fix_sha, cwd=worktree),
             },
         )
+        task.last_error = None
         transition(task, "fix_committed", actor="worker", session=session)
         await session.flush()
 
@@ -474,7 +521,7 @@ Hard constraints:
             session,
             task,
             "EVIDENCE",
-            task.attempt + 1,
+            await self._next_artifact_version(session, task.id, "EVIDENCE"),
             {
                 "ok": result.ok,
                 "reasons": result.reasons,
@@ -496,6 +543,9 @@ Hard constraints:
                 ],
             },
         )
+        if not result.ok:
+            task.last_error = "; ".join(result.reasons)[:4000]
+
         if result.ok:
             # 需要两个独立决策：Bug Owner 确认修复，
             # Code Owner 授权合并。
@@ -512,11 +562,11 @@ Hard constraints:
             await session.flush()
             await self.notifier.send(
                 f"{task.issue_key} verification passed; result approval",
-                f"{self.config.app.base_url}/a/{result_token}",
+                f"{self.config.app.base_url}/approve/result/{result_token}",
             )
             await self.notifier.send(
                 f"{task.issue_key} merge authorization",
-                f"{self.config.app.base_url}/a/{merge_token}",
+                f"{self.config.app.base_url}/approve/merge/{merge_token}",
             )
             return
 

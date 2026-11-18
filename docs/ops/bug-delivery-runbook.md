@@ -13,11 +13,11 @@
 |---|---|---|---|
 | 1. 接入 | 轮询或推送 Bug | `POST /api/intake` | `NEW` |
 | 2. 分析 | Worker 自动执行 | 查看 `/api/tasks/{id}/timeline` | `ANALYZING` → `WAITING_PLAN_APPROVAL` 或 `WAITING_INFO` |
-| 3. 方案审批 | Bug Owner 打开审批链接 | `GET/POST /a/{token}` | `FIXING` |
+| 3. 方案审批 | Bug Owner 打开审批链接 | `GET/POST /approve/plan/{token}` | `FIXING` |
 | 4. 编码 | ACP Agent 修改代码 | 查看 timeline / Diff Artifact | `VERIFYING` |
 | 5. 验证 | L1–L3 + Red-Green | 查看 EVIDENCE Artifact | `WAITING_APPROVAL` |
-| 6. 结果审批 | Bug Owner 确认修复 | `GET/POST /a/{token}` | 等待 MERGE |
-| 7. 合并审批 | Code Owner 授权合并 | `GET/POST /a/{token}` | `DELIVERING` |
+| 6. 结果审批 | Bug Owner 确认修复 | `GET/POST /approve/result/{token}` | 等待 MERGE |
+| 7. 合并审批 | Code Owner 授权合并 | `GET/POST /approve/merge/{token}` | `DELIVERING` |
 | 8. 交付 | MR #1 → promote → MR #2 | timeline 的 `delivery` | `DONE` |
 
 ---
@@ -247,7 +247,37 @@ curl -sS "http://localhost:8000/api/tasks/${TASK_ID}/artifacts/ANALYSIS" \
 
 ### 3.3 信息不足时补充
 
-`WAITING_INFO` 时，分析问题在 `ANALYSIS` Artifact 的 `questions` 字段。
+`WAITING_INFO` 时，Worker 会推送一个**澄清页面链接**给 Bug 提出者：
+
+```text
+{app.base_url}/clarify/{token}
+```
+
+页面特点：
+
+- 只展示当前 Bug 标题、原始描述和待回答问题；
+- **优先单选**：每个问题提供 2–4 个选项；
+- 每个单选题都带“其他”选项，选中后可输入自定义答案；
+- 只有无法枚举答案的问题才使用文本框；
+- 支持一个“补充材料/链接”输入框；
+- 提交后自动回到分析，无需登录后台；
+- 链接绑定 `task_id + analysis_version`，有效期 72 小时；
+- 重新分析后旧链接自动失效。
+
+页面操作：
+
+1. 打开链接；
+2. 按需填写问题答案；
+3. 可附日志/截图/代码路径链接；
+4. 点击「提交并继续分析」。
+
+状态：
+
+```text
+WAITING_INFO → ANALYZING
+```
+
+如果页面链接丢失，管理员仍可调用 API 补充：
 
 ```bash
 curl -sS -X POST "http://localhost:8000/api/tasks/${TASK_ID}/info" \
@@ -261,12 +291,6 @@ curl -sS -X POST "http://localhost:8000/api/tasks/${TASK_ID}/info" \
 JSON
 ```
 
-状态：
-
-```text
-WAITING_INFO → ANALYZING
-```
-
 ### 3.4 方案审批
 
 从以下位置获取链接：
@@ -278,20 +302,32 @@ WAITING_INFO → ANALYZING
 审批链接：
 
 ```text
-http://localhost:8000/a/<token>
+http://localhost:8000/approve/plan/<token>
 ```
 
-页面操作：
+方案审批页会完整展示：
 
-- `Your identity`：`didaspace`
-- `Approve`：批准
-- `Request changes`：回到分析
-- `Reject`：取消流程
+- 根因判断与置信度
+- 代码/日志证据（`file:line`）
+- 修改计划
+- 影响范围与预计文件
+- 测试计划与回归命令
+- 默认假设（如有）
+- 风险与回滚方案
+- 原始 Bug 描述（可折叠）
+
+页面右侧为审批操作区：
+
+- `审批人`：默认填充 Bug Owner
+- `审批意见`：可选，驳回时建议填写
+- `批准方案`：进入编码
+- `要求修改`：回到分析
+- `拒绝`：取消流程
 
 curl 方式：
 
 ```bash
-curl -sS -X POST "http://localhost:8000/a/<token>" \
+curl -sS -X POST "http://localhost:8000/approve/plan/<token>" \
   -d "decision=APPROVED" \
   -d "actor=didaspace" \
   -d "comment=同意方案"
@@ -367,6 +403,40 @@ curl -sS "http://localhost:8000/api/tasks/${TASK_ID}/artifacts/EVIDENCE" \
 
 两个链接都要批准。只批准一个不会进入交付。
 
+修复结果确认页会展示：
+
+- 自动验证是否通过
+- 根因摘要、base/fix Commit
+- 变更文件数与行数（10 文件 / 200 行限制）
+- 门禁命令、退出码与结果
+- Red-Green 的 base/fix 退出码
+- 完整 Diff（可折叠、只读）
+- 测试计划与回滚方案
+- 原始 Bug 描述
+
+页面右侧为操作区：
+
+- `确认修复结果`：确认后仍需 Code Owner 合并授权
+- `要求修改`：回到编码
+- `拒绝`：转人工处置
+
+合并授权页（`/approve/merge/{token}`）会展示：
+
+- 修复结果已确认人与时间
+- base/fix Commit
+- 变更文件数与行数
+- Red-Green 证据
+- 合并计划：MR #1 → dev、promote 分支、只 cherry-pick、MR #2 → test
+- `patch-id` 校验与单提交约束
+- 合并模式（AUTO_MERGE_IF_ALLOWED / CREATE_MR_ONLY）
+- 风险与回滚
+- 完整 Diff 和原始 Bug 描述
+
+合并授权操作：
+
+- `授权合并`：进入交付
+- `拒绝并转人工`：停止自动合并，转 MANUAL
+
 批准后：
 
 ```text
@@ -419,15 +489,17 @@ DELIVERING → DONE
 | GET | `/api/tasks/{id}` | 无 | 任务状态与审批 |
 | GET | `/api/tasks/{id}/timeline?include_content=true` | 无 | 完整时间线 |
 | GET | `/api/tasks/{id}/artifacts/{type}` | 无 | 最新 Artifact，如 `ANALYSIS`、`DIFF`、`EVIDENCE` |
-| POST | `/api/tasks/{id}/info` | Admin Bearer | 补充 WAITING_INFO 信息 |
+| GET/POST | `/clarify/{token}` | 一次性 Token | 给 Bug 提出者的澄清页面 |
+| POST | `/api/tasks/{id}/info` | Admin Bearer | 管理员兜底补充 WAITING_INFO 信息 |
 | POST | `/api/tasks/{id}/reanalyze` | Admin Bearer | 配置变化后重新分析 |
 | POST | `/api/tasks/{id}/retry` | Admin Bearer | MANUAL 任务重试 |
 | POST | `/api/tasks/{id}/cancel` | Admin Bearer | 取消任务 |
 | POST | `/api/admin/pause` | Admin Bearer | 全局 Kill Switch |
 | GET | `/healthz` | 无 | 健康检查 |
 | GET | `/metrics` | 无 | Prometheus 指标 |
-| GET | `/a/{token}` | 一次性 Token | 渲染审批页 |
-| POST | `/a/{token}` | 一次性 Token | 提交审批决策 |
+| GET/POST | `/approve/plan/{token}` | 一次性 Token | 方案审批页 |
+| GET/POST | `/approve/result/{token}` | 一次性 Token | 修复结果确认页 |
+| GET/POST | `/approve/merge/{token}` | 一次性 Token | 合并授权页 |
 
 带查询参数的 URL 在 zsh 中必须加引号：
 
@@ -442,7 +514,7 @@ curl "http://localhost:8000/api/tasks?state=WAITING_APPROVAL"
 ### 5.1 链接格式
 
 ```text
-{app.base_url}/a/{token}
+{app.base_url}/approve/{gate}/{token}
 ```
 
 Token 由以下内容生成：
@@ -492,7 +564,7 @@ async def main():
             )
             print(
                 approval.gate,
-                f"{config.app.base_url.rstrip('/')}/a/{token}",
+                f"{config.app.base_url.rstrip('/')}/approve/{approval.gate.lower()}/{token}",
                 "expires:",
                 approval.expires_at,
             )
@@ -512,7 +584,7 @@ approval link is invalid or expired
 ### 5.3 批准命令
 
 ```bash
-curl -sS -X POST "http://localhost:8000/a/<token>" \
+curl -sS -X POST "http://localhost:8000/approve/plan/<token>" \
   -d "decision=APPROVED" \
   -d "actor=didaspace" \
   -d "comment=同意"
@@ -595,7 +667,7 @@ order by id;
 | `403 admin token required` | 未带 Bearer Token | `source .env`，加 `Authorization` |
 | `approval link is invalid or expired` | Token 生成 secret 不一致/过期 | 用 `load_dotenv` 重新生成；检查 TTL |
 | `approval subject changed` | 配置、分析版本、Diff 或 SHA 变了 | 重新分析或重新审批 |
-| `WAITING_INFO` 长期不动 | 未提交补充信息 | 调 `/info`，或检查 Poller/API |
+| `WAITING_INFO` 长期不动 | 未提交补充信息 | 用 Worker 日志/飞书里的 `/clarify/{token}` 页面，或调 `/info` |
 | `FIXING` 报 `No such file... work/fix-...` | worktree 相对路径/旧 Worker | 使用最新代码；清理 `repos/drawhub/work`；重启 Worker |
 | `relation "bug_task" already exists` | `create_all` 先建表，Alembic 未 stamp | 空表 `alembic stamp head`；有数据不要删表 |
 | `404 .../issues/<id>/notes` | issue_key 不是真实 IID | 用真实 GitLab Issue IID |
@@ -739,3 +811,46 @@ deployed: false
 ```
 
 结论：核心修复、验证、审批、开发分支合并、测试分支隔离均已完成；当前 MVP 不自动回写来源系统。
+
+
+
+1:提交bug：
+curl -sS -X POST "http://localhost:8000/api/intake" \
+    -H "Authorization: Bearer ${AUTOFIX_ADMIN_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d @- <<'JSON'
+  {
+    "event_id": "manual-2026-11-17-001",
+    "source": "gitlab_issues",
+    "issue_key": "1024",
+    "title": "每日幸运转盘 · 九宫格抽奖 换行了",
+    "body": "进入页面抽奖页标题换行；期望：标题过长时从左向右滚动展示",
+    "repo": "didaspace-group/drawhub",
+    "assignee": "didaspace",
+    "code_owner": "didaspace"
+  }
+
+2:重试任务：
+curl -sS -X POST \
+    "http://localhost:8000/api/tasks/$e3bb0637-facc-4702-882c-50d6921ecb85/retry" \
+    -H "Authorization: Bearer ${AUTOFIX_ADMIN_TOKEN}"
+
+3:查看状态：
+curl -sS \
+    "http://localhost:8000/api/tasks/e3bb0637-facc-4702-882c-50d6921ecb85" \
+    | python3 -m json.tool
+
+查看时间线：
+  curl -sS \
+    "http://localhost:8000/api/tasks/e3bb0637-facc-4702-882c-50d6921ecb85/timeline?include_content=true" \
+    | python3 -m json.tool
+
+
+2: 提交澄清问题：
+curl -sS -X POST "http://localhost:8000/api/tasks/11e4d2a2-d163-4a87-90d9-e4ad80d32a05/info" \               
+    -H "Authorization: Bearer ${AUTOFIX_ADMIN_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "actor": "didaspace",
+      "answer": "按项目通用前端方案处理"
+    }'

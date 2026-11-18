@@ -34,6 +34,7 @@ LEGAL: dict[tuple[str, str], str] = {
     ("DELIVERING", "delivery_unrecoverable"): "FAILED",
     ("MANUAL", "resume_analyzing"): "ANALYZING",
     ("MANUAL", "resume_fixing"): "FIXING",
+    ("MANUAL", "resume_verifying"): "VERIFYING",
     ("MANUAL", "resume_delivering"): "DELIVERING",
     ("MANUAL", "cancel"): "CANCELLED",
 }

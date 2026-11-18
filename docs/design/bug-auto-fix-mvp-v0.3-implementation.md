@@ -167,9 +167,11 @@ gates/
 prompts/
   analyze.md
   fix.md
-templates/
-  approve.html
-  needs_info.html
+app/api/templates/
+  approve_plan.html
+  approve_result.html
+  approve_merge.html
+  clarify.html
 tests/
 docker-compose.yml
 config.yaml
@@ -351,8 +353,9 @@ MR1 / MERGE1 / PROMOTE / MR2 / MERGE2 / DEPLOY_LOCAL / HEALTH / ROLLBACK / WRITE
 | GET | `/api/tasks/{id}` | 详情 + 审批/交付状态 |
 | POST | `/api/tasks/{id}/retry` | 从 `MANUAL` 重新入队 |
 | POST | `/api/tasks/{id}/cancel` | 取消 |
-| GET | `/a/{token}` | 审批页 |
-| POST | `/a/{token}` | 提交决策 |
+| GET/POST | `/approve/plan/{token}` | 方案审批专用页 |
+| GET/POST | `/approve/result/{token}` | 修复结果确认专用页 |
+| GET/POST | `/approve/merge/{token}` | 合并授权专用页 |
 | POST | `/api/admin/pause` | Kill Switch |
 | GET | `/healthz` | 健康 |
 | GET | `/metrics` | Prometheus |

@@ -165,8 +165,9 @@ project:
     allow_default_assumptions: true
     # 只有真正阻塞的问题才提问，最多 3 个
     max_questions: 3
+    # 单次分析超时（秒）；超时后任务转 MANUAL
+    timeout_seconds: 900
     conventions:
-      - "前端滚动标题：仅在内容溢出时滚动，方向从右向左；hover/focus 暂停；prefers-reduced-motion 时停止"
       - "优先复用仓库现有测试框架和目录；不要询问能从代码中发现的文件位置"
       - "业务规则不明确且影响正确性时才提问"
 

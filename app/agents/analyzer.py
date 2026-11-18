@@ -5,22 +5,32 @@ MVP 刻意不引入代码索引或多 Agent 分析。"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
 from app.core.config import AnalysisPolicy
 
 
+class ClarificationQuestion(BaseModel):
+    """澄清问题：优先单选，确需自由输入时才使用 text。"""
+
+    text: str
+    type: Literal["single_choice", "text"] = "single_choice"
+    options: list[str] = Field(default_factory=list)
+    allow_other: bool = True
+
+
 class AnalysisResult(BaseModel):
     """分析阶段的结构化输出。"""
     need_info: bool = False
-    questions: list[str] = Field(default_factory=list)
+    questions: list[ClarificationQuestion | str] = Field(default_factory=list)
     root_cause: str = ""
     confidence: float = 0.0
     evidence: list[str] = Field(default_factory=list)
@@ -123,11 +133,15 @@ class AnthropicAnalyzer:
     ):
         from anthropic import AsyncAnthropic
 
-        self.client = AsyncAnthropic(api_key=api_key, base_url=base_url)
+        self.policy = policy or AnalysisPolicy()
+        self.client = AsyncAnthropic(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=self.policy.timeout_seconds,
+        )
         self.model = model
         self.max_tokens = max_tokens
         self.context = context or ContextBuilder()
-        self.policy = policy or AnalysisPolicy()
 
     async def analyze(self, *, issue_key: str, title: str, body: str, repo_path: str) -> AnalysisResult:
         terms = [issue_key, *re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", title)[:8]]
@@ -142,6 +156,10 @@ class AnthropicAnalyzer:
             if self.policy.allow_default_assumptions
             else "Ask before assuming any missing product behavior."
         )
+        question_example = (
+            '{"text": "...", "type": "single_choice", '
+            '"options": ["A", "B"], "allow_other": true}'
+        )
         prompt = f"""You are a senior engineer. Analyze the bug and return ONLY JSON.
 
 Bug: {issue_key}
@@ -152,7 +170,7 @@ Description:
 {ctx.as_prompt()}
 
 Return JSON with exactly these fields:
-need_info (bool), questions (string[]), root_cause (string), confidence (0..1),
+need_info (bool), questions (object[]), root_cause (string), confidence (0..1),
 evidence (string[] with file:line), candidate_files (string[]), plan (string[]),
 test_plan (string), test_command (string), risk (LOW|MEDIUM|HIGH), rollback (string),
 assumptions (string[]).
@@ -164,8 +182,13 @@ Rules:
 - {assumption_rule}
 - Ask at most {self.policy.max_questions} questions, and only when the missing information
   blocks correctness, safety, data migration, credentials, or a material business rule.
+- For each question, prefer `type: "single_choice"` with 2-4 concrete options.
+  Add `"allow_other": true` so the reporter can enter a custom answer.
+  Use `type: "text"` only when the answer cannot be enumerated.
 - For common UI/UX behavior, prefer conventional, accessible defaults and document them
   in `assumptions` instead of asking.
+- Question object format:
+  {question_example}
 - Every root cause must cite at least one file:line in evidence.
 - test_command must be runnable and target the specific regression test.
 
@@ -174,12 +197,14 @@ Project conventions:
 """
         # 长分析可能超过 10 分钟；Anthropic 要求这类请求使用流式接口。
         # 仍然在流结束后拿到完整 Message，再统一做 JSON 解析。
-        async with self.client.messages.stream(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            response = await stream.get_final_message()
+        async with asyncio.timeout(self.policy.timeout_seconds):
+            async with self.client.messages.stream(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=self.policy.timeout_seconds,
+            ) as stream:
+                response = await stream.get_final_message()
         text = "".join(
             getattr(block, "text", "")
             for block in response.content

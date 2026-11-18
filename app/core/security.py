@@ -108,3 +108,44 @@ def is_expired(expires_at: datetime, now: datetime | None = None) -> bool:
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
     return current > expires_at
+
+def make_clarification_token(
+    secret: str,
+    task_id: str,
+    analysis_version: int,
+    expires_at: datetime,
+) -> str:
+    """生成绑定任务和当前分析版本的澄清链接 Token。"""
+
+    exp = int(expires_at.timestamp())
+    msg = f"{task_id}:{analysis_version}:{exp}".encode()
+    sig = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+    raw = f"{task_id}:{analysis_version}:{exp}:{sig}".encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def verify_clarification_token(
+    secret: str,
+    token: str,
+    now: datetime | None = None,
+) -> tuple[str, int] | None:
+    """校验澄清 Token，返回 (task_id, analysis_version)。"""
+
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode()).decode()
+        task_id, version, exp, sig = raw.split(":", 3)
+        analysis_version = int(version)
+        expires = int(exp)
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+    msg = f"{task_id}:{analysis_version}:{expires}".encode()
+    expected = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+
+    current = now or datetime.now(UTC)
+    if current.timestamp() > expires:
+        return None
+    return task_id, analysis_version

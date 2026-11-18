@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bug 信息补充 · {{ task.issue_key }}</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --text: #1f2328;
+      --muted: #667085;
+      --line: #e4e7ec;
+      --accent: #2563eb;
+      --accent-dark: #1d4ed8;
+      --success-bg: #ecfdf3;
+      --success-text: #067647;
+      --error-bg: #fef3f2;
+      --error-text: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                   "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      background: #eff6ff;
+      border-radius: 999px;
+      padding: 4px 10px;
+      margin-bottom: 10px;
+    }
+    h1 { font-size: 22px; line-height: 1.35; margin: 0 0 8px; }
+    .subtitle { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      color: var(--muted);
+      font-size: 13px;
+      padding: 12px 0 16px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 18px;
+    }
+    .meta strong { color: var(--text); font-weight: 600; }
+    details {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 20px;
+      background: #fcfcfd;
+    }
+    summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+    .original {
+      white-space: pre-wrap;
+      color: #475467;
+      font-size: 13px;
+      margin-top: 10px;
+      max-height: 260px;
+      overflow: auto;
+    }
+    .question {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .question-head {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+    .num {
+      flex: 0 0 auto;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #eff6ff;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+      margin-top: 1px;
+    }
+    .question-text { font-size: 15px; font-weight: 600; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .hint { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 4px; }
+    textarea {
+      width: 100%;
+      min-height: 88px;
+      resize: vertical;
+      border: 1px solid #d0d5dd;
+      border-radius: 9px;
+      padding: 10px 12px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+    }
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+    }
+    .options { display: grid; gap: 8px; }
+    .option {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 10px 12px;
+      cursor: pointer;
+      font-size: 14px;
+      background: #fff;
+    }
+    .option:hover { border-color: #b2c7f7; background: #f8fbff; }
+    .option input { margin-top: 4px; accent-color: var(--accent); }
+    .other-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .other-row input[type=text] {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid #d0d5dd;
+      border-radius: 9px;
+      padding: 9px 11px;
+      font: inherit;
+      outline: none;
+    }
+    .other-row input[type=text]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+    }
+    .actions { margin-top: 22px; }
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 18px;
+      font: inherit;
+      font-weight: 700;
+      color: #fff;
+      background: var(--accent);
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-dark); }
+    button:focus-visible { outline: 3px solid rgba(37, 99, 235, .35); outline-offset: 2px; }
+    .note { color: var(--muted); font-size: 12px; margin-top: 10px; text-align: center; }
+    .alert {
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 14px;
+      margin-bottom: 18px;
+    }
+    .alert-error { background: var(--error-bg); color: var(--error-text); }
+    .alert-success { background: var(--success-bg); color: var(--success-text); }
+    .success-title { font-size: 18px; font-weight: 700; margin: 0 0 6px; }
+    .success-text { margin: 0; color: #475467; }
+    .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
+    @media (max-width: 480px) {
+      main { padding: 12px 10px 32px; }
+      .card { padding: 18px 14px; border-radius: 12px; }
+      h1 { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <div class="eyebrow">Bug 信息补充</div>
+    <h1>{{ task.title }}</h1>
+    <p class="subtitle">
+      {% if not submitted and not error %}
+        为了更准确定位问题，请补充以下信息。预计 2 分钟。
+      {% elif submitted %}
+        信息已提交，系统会重新分析这个 Bug。
+      {% endif %}
+    </p>
+
+    <div class="meta">
+      <span>Bug：<strong>{{ task.issue_key }}</strong></span>
+      <span>仓库：<strong>{{ task.repo }}</strong></span>
+      <span>状态：<strong>{{ task.state }}</strong></span>
+    </div>
+
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    {% if submitted %}
+      <div class="alert alert-success">
+        <p class="success-title">提交成功</p>
+        <p class="success-text">
+          分析已重新开始，您可以直接关闭此页面。如需继续补充，请等待新的澄清通知。
+        </p>
+      </div>
+    {% else %}
+      <details>
+        <summary>查看原始 Bug 描述</summary>
+        <div class="original">{{ task.body }}</div>
+      </details>
+
+      <form method="post" action="/clarify/{{ token }}">
+        {% if questions %}
+          {% for question in questions %}
+            <div class="question">
+              <div class="question-head">
+                <span class="num">{{ loop.index }}</span>
+                <div class="question-text">{{ question.text }}</div>
+              </div>
+              {% if question.type == "single_choice" and question.options %}
+                <div class="options">
+                  {% for option in question.options %}
+                    <label class="option">
+                      <input
+                        type="radio"
+                        name="answer_{{ loop.index0 }}"
+                        value="{{ option }}"
+                      >
+                      <span>{{ option }}</span>
+                    </label>
+                  {% endfor %}
+                  {% if question.allow_other %}
+                    <label class="option">
+                      <input
+                        type="radio"
+                        name="answer_{{ loop.index0 }}"
+                        value="__other__"
+                      >
+                      <span>其他</span>
+                    </label>
+                    <div class="other-row">
+                      <input
+                        type="text"
+                        name="other_{{ loop.index0 }}"
+                        aria-label="其他回答"
+                        placeholder="如选择“其他”，请在这里填写"
+                      >
+                    </div>
+                  {% endif %}
+                </div>
+              {% else %}
+                <label for="answer_{{ loop.index0 }}">
+                  您的回答 <span class="hint">可留空</span>
+                </label>
+                <textarea
+                  id="answer_{{ loop.index0 }}"
+                  name="answer_{{ loop.index0 }}"
+                  placeholder="请尽量提供具体信息，例如：模块名、操作步骤、日志片段、截图链接…"
+                ></textarea>
+              {% endif %}
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="question">
+            <div class="question-text">请补充有助于定位问题的信息</div>
+            <p class="hint">例如：复现步骤、预期/实际结果、错误日志、截图或相关文件位置。</p>
+          </div>
+        {% endif %}
+
+        <label for="extra">补充材料或链接 <span class="hint">可选</span></label>
+        <textarea
+          id="extra"
+          name="extra"
+          placeholder="日志链接、截图链接、相关代码文件路径等"
+        ></textarea>
+
+        <div class="actions">
+          <button type="submit">提交并继续分析</button>
+        </div>
+        <p class="note">提交后系统会重新分析；信息仅用于本次 Bug 处理。</p>
+      </form>
+    {% endif %}
+  </div>
+  <p class="footer">Bug Auto-Fix · 如链接失效，请联系 Bug 执行人重新发送</p>
+</main>
+</body>
+</html>
